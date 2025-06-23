@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clima + Rádio DSHO + Alertas</title>
+  <link href="https://cdn.jsdelivr.net/npm/weather-icons/css/weather-icons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin:0; padding:0;
+      display:flex; flex-direction:column; align-items:center;
+      transition: background 0.5s, color 0.5s;
+    }
+    header, .section, footer { width:90%; max-width:600px; margin:10px auto; padding:15px; border-radius:10px; }
+    header { text-align:center; }
+    .section { background:rgba(255,255,255,0.1); }
+    ul { padding-left:20px; }
+    li { margin-bottom:8px; }
+    .icon { margin-right:8px; }
+    .alert { background:#ff4444; padding:10px; border-radius:6px; margin-bottom:10px; }
+    .dark-mode { background:#121212; color:#ddd; }
+    .dark-mode .section { background:rgba(255,255,255,0.05); }
+    .dark-mode .alert { background:#c62828; }
+    #map { height:200px; margin-top:10px; border-radius:8px; }
+    .audio-player { position:fixed; bottom:10px; right:10px; background:#000; padding:8px; border-radius:8px; opacity:0.8; }
+    button { padding:6px 10px; margin:5px; border:none; border-radius:5px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🌤️ Clima Maringá + Rádio DSHO + Alertas</h1>
+    <p id="last-update">Atualizando...</p>
+    <button onclick="toggleTheme()">🌙 Alternar Tema</button>
+  </header>
+
+  <div id="alerts"></div>
+  <div class="section" id="current"></div>
+
+  <div class="section">
+    <h2>Previsão por hora</h2>
+    <ul id="hourly-list"></ul>
+  </div>
+
+  <div class="section">
+    <h2>Previsão diária</h2>
+    <ul id="daily-list"></ul>
+  </div>
+
+  <div class="section">
+    <h2>Localização</h2>
+    <div id="map"></div>
+  </div>
+
+  <div class="audio-player">
+    <audio id="radio" autoplay loop>
+      <source src="https://streaming.radiosaovivo.online/aovivo/radio-dsho-observatorio-nacional-utc-3-horas" type="audio/mpeg">
+      Rádio não suportada.
+    </audio>
+    <button onclick="toggleAudio()">🔊 Mute/Unmute</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const lat=-23.420, lon=-51.933;
+    const inmetURL='https://alertas2.inmet.gov.br/';
+    let isMuted = false;
+
+    function toggleAudio() {
+      const audio = document.getElementById('radio');
+      isMuted = !isMuted;
+      audio.muted = isMuted;
+    }
+
+    function toggleTheme() {
+      document.body.classList.toggle('dark-mode');
+    }
+
+    function getIcon(t){if(t>=35)return'<i class="wi wi-hot icon"></i>'; if(t>=25)return'<i class="wi wi-day-sunny icon"></i>'; if(t>=15)return'<i class="wi wi-cloud icon"></i>'; return'<i class="wi wi-snow icon"></i>';}
+    function setBackground(t){
+      let c;
+      if(t>=35)c='#e74c3c';
+      else if(t>=25)c='#f39c12';
+      else if(t>=15)c='#27ae60';
+      else c='#3498db';
+      if(document.body.classList.contains('dark-mode')) c='#121212';
+      document.body.style.background=c;
+    }
+
+    async function loadAlerts(){
+      try{
+        const res=await fetch(inmetURL);
+        const xml=await res.text();
+        const doc=new DOMParser().parseFromString(xml,'text/xml');
+        const alerts=[...doc.querySelectorAll('info')].filter(i=>[...i.querySelectorAll('areaDesc')].some(el=>el.textContent.includes('PR')));
+        const d=document.getElementById('alerts'); d.innerHTML='';
+        alerts.forEach(i=>{
+          const h=i.querySelector('headline')?.textContent||'';
+          const desc=i.querySelector('description')?.textContent||'';
+          d.innerHTML+=`<div class="alert"><strong>${h}</strong><br>${desc}</div>`;
+          if(Notification.permission==="granted") new Notification(`Alerta INMET: ${h}`,{body:desc});
+        });
+      }catch(e){console.warn('Erro alertas INMET',e);}
+    }
+
+    async function loadWeather(){
+      try{
+        const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,uv_index&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max&timezone=America/Sao_Paulo`;
+        const res=await fetch(u);
+        const data=await res.json();
+        const now=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+        document.getElementById('last-update').textContent=`Última atualização: ${now}`;
+        const cur=data.current_weather;
+        const idx=data.hourly.time.indexOf(cur.time);
+        const hum=data.hourly.relative_humidity_2m[idx];
+        const uv=data.hourly.uv_index[idx]?.toFixed(1)||'N/A';
+        const sens=data.hourly.apparent_temperature[idx]?.toFixed(1)||cur.temperature;
+        document.getElementById('current').innerHTML=
+          `${getIcon(cur.temperature)}<strong>${cur.temperature}°C</strong> | Sensação: ${sens}°C | Umidade: ${hum}% | UV: ${uv} | Vento: ${cur.wind_speed}m/s`;
+        setBackground(cur.temperature);
+
+        const hl=document.getElementById('hourly-list'); hl.innerHTML='';
+        data.hourly.time.slice(0,12).forEach((t,i)=>{
+          const temp=data.hourly.temperature_2m[i];
+          const hum2=data.hourly.relative_humidity_2m[i];
+          const wind=data.hourly.wind_speed_10m[i];
+          const uvh=data.hourly.uv_index[i]?.toFixed(1)||'N/A';
+          const h=t.slice(11,16);
+          hl.innerHTML+=`<li>${getIcon(temp)} ${h} — ${temp}°C | ${hum2}% | UV: ${uvh} | ${wind}m/s</li>`;
+        });
+
+        const dl=document.getElementById('daily-list'); dl.innerHTML='';
+        data.daily.time.forEach((d,i)=>{
+          const max=data.daily.temperature_2m_max[i];
+          const min=data.daily.temperature_2m_min[i];
+          const prec=data.daily.precipitation_sum[i];
+          const uvmax=data.daily.uv_index_max[i]?.toFixed(1)||'N/A';
+          dl.innerHTML+=`<li>${getIcon(max)}<strong>${d}</strong> — Máx: ${max}°C | Mín: ${min}°C | Chuva: ${prec}mm | UV máx: ${uvmax}</li>`;
+        });
+      }catch(e){console.error('Erro clima',e);}
+    }
+
+    async function updateAll(){await loadAlerts(); await loadWeather();}
+    updateAll();
+    setInterval(updateAll,600000);
+
+    if("Notification" in window && Notification.permission!=="granted"){
+      Notification.requestPermission();
+    }
+
+    // Mapa Leaflet
+    const map = L.map('map').setView([lat, lon], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap' }).addTo(map);
+    L.marker([lat, lon]).addTo(map).bindPopup('Maringá - PR').openPopup();
+  </script>
+</body>
+</html>
