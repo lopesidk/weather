@@ -24,7 +24,7 @@
     .dark-mode .section { background:rgba(255,255,255,0.05); }
     .dark-mode .alert { background:#c62828; }
     #map { height:200px; margin-top:10px; border-radius:8px; }
-    .audio-player { position:fixed; bottom:10px; right:10px; background:#000; padding:8px; border-radius:8px; opacity:0.8; }
+    .audio-player { background:rgba(0,0,0,0.3); padding:10px; border-radius:8px; text-align:center; }
     button { padding:6px 10px; margin:5px; border:none; border-radius:5px; cursor:pointer; }
   </style>
 </head>
@@ -54,11 +54,11 @@
   </div>
 
   <div class="audio-player">
-    <audio id="radio" autoplay loop>
+    <audio id="radio" preload="none">
       <source src="https://streaming.radiosaovivo.online/aovivo/radio-dsho-observatorio-nacional-utc-3-horas" type="audio/mpeg">
-      Rádio não suportada.
+      Seu navegador não suporta áudio.
     </audio>
-    <button onclick="toggleAudio()">🔊 Mute/Unmute</button>
+    <button id="playBtn">▶️ Tocar Rádio DSHO</button>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -67,12 +67,7 @@
     const inmetURL='https://alertas2.inmet.gov.br/';
     let isMuted = false;
 
-    function toggleAudio() {
-      const audio = document.getElementById('radio');
-      isMuted = !isMuted;
-      audio.muted = isMuted;
-    }
-
+    // Tema Claro/Escuro
     function toggleTheme() {
       document.body.classList.toggle('dark-mode');
     }
@@ -88,6 +83,7 @@
       document.body.style.background=c;
     }
 
+    // Alertas INMET com Notificação
     async function loadAlerts(){
       try{
         const res=await fetch(inmetURL);
@@ -104,6 +100,7 @@
       }catch(e){console.warn('Erro alertas INMET',e);}
     }
 
+    // Clima Open-Meteo
     async function loadWeather(){
       try{
         const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,uv_index&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max&timezone=America/Sao_Paulo`;
@@ -145,6 +142,7 @@
     updateAll();
     setInterval(updateAll,600000);
 
+    // Notificação Push
     if("Notification" in window && Notification.permission!=="granted"){
       Notification.requestPermission();
     }
@@ -153,6 +151,19 @@
     const map = L.map('map').setView([lat, lon], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap' }).addTo(map);
     L.marker([lat, lon]).addTo(map).bindPopup('Maringá - PR').openPopup();
+
+    // Rádio Play/Pause
+    const audio = document.getElementById('radio');
+    const btn = document.getElementById('playBtn');
+    btn.addEventListener('click', () => {
+      if (audio.paused) {
+        audio.play().catch(e=>console.warn('Erro ao tocar:', e));
+        btn.textContent = '⏸️ Pausar Rádio DSHO';
+      } else {
+        audio.pause();
+        btn.textContent = '▶️ Tocar Rádio DSHO';
+      }
+    });
   </script>
 </body>
 </html>
